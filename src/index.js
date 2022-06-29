@@ -5,7 +5,9 @@ import * as github from '@actions/github';
 const { context = {} } = github;
 const { pull_request, head_commit } = context.payload;
 
-const regexPullRequest = /Merge pull request \#\d+ from/g;
+const regexPullRequest = /Merge pull request \#\d+ from [\w\-]*\//g;
+const regexPRNamingFormat1 = /\#\d+/g; // e.g. Code change #1000
+const regexPRNamingFormat2 = /^\d+/g; // e.g. 1000-code-change (Trello card URI)
 const trelloApiKey = core.getInput('trello-api-key', { required: true });
 const trelloAuthToken = core.getInput('trello-auth-token', { required: true });
 const trelloBoardId = core.getInput('trello-board-id', { required: true });
@@ -16,26 +18,35 @@ const trelloListNamePullRequestClosed = core.getInput('trello-list-name-pr-close
 
 function getCardNumber(message) {
   console.log(`getCardNumber(${message})`);
-  let ids = message && message.length > 0 ? message.replace(regexPullRequest, "").match(/\#\d+/g) : [];
-  return ids && ids.length > 0 ? ids[ids.length-1].replace('#', '') : null;
+  if (!message || message.length <= 0) {
+    return null
+  }
+  let ids = message.replace(regexPullRequest, "").match(regexPRNamingFormat1);
+  if (ids && ids.length > 0) {
+    return ids[ids.length-1].replace('#', '')
+  }
+  ids = message.replace(regexPullRequest, "").match(regexPRNamingFormat2);
+  return ids && ids.length > 0 ? ids[ids.length-1] : null;
 }
 
-async function getCardOnBoard(board, message) {
-  console.log(`getCardOnBoard(${board}, ${message})`);
-  let card = getCardNumber(message);
-  if (card && card.length > 0) {
-    let url = `https://trello.com/1/boards/${board}/cards/${card}`
-    return await axios.get(url, { 
-      params: { 
-        key: trelloApiKey, 
-        token: trelloAuthToken 
-      }
-    }).then(response => {
-      return response.data.id;
-    }).catch(error => {
-      console.error(url, `Error ${error.response.status} ${error.response.statusText}`);
-      return null;
-    });
+async function getCardOnBoard(board, ...messages) {
+  for (let i = 0; i < messages.length; ++i) {
+    let message = messages[i];
+    console.log(`getCardOnBoard(${board}, ${message})`);
+    let card = getCardNumber(message);
+    if (card && card.length > 0) {
+      let url = `https://trello.com/1/boards/${board}/cards/${card}`
+      return await axios.get(url, {
+        params: {
+          key: trelloApiKey,
+          token: trelloAuthToken
+        }
+      }).then(response => {
+        return response.data.id;
+      }).catch(error => {
+        console.error(url, `Error ${error.response.status} ${error.response.statusText}`);
+      });
+    }
   }
   return null;
 }
@@ -132,8 +143,11 @@ async function handlePullRequest(data) {
   console.log("handlePullRequest", data);
   let url = data.html_url || data.url;
   let message = data.title;
+  let branch = data.head.ref;
   let user = data.user.name;
-  let card = await getCardOnBoard(trelloBoardId, message);
+
+  let card = await getCardOnBoard(trelloBoardId, message, branch);
+
   if (card && card.length > 0) {
     if (trelloCardAction && trelloCardAction.toLowerCase() == 'attachment') {
       await addAttachmentToCard(card, url);
