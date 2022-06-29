@@ -29,22 +29,24 @@ function getCardNumber(message) {
   return ids && ids.length > 0 ? ids[ids.length-1] : null;
 }
 
-async function getCardOnBoard(board, message) {
-  console.log(`getCardOnBoard(${board}, ${message})`);
-  let card = getCardNumber(message);
-  if (card && card.length > 0) {
-    let url = `https://trello.com/1/boards/${board}/cards/${card}`
-    return await axios.get(url, { 
-      params: { 
-        key: trelloApiKey, 
-        token: trelloAuthToken 
-      }
-    }).then(response => {
-      return response.data.id;
-    }).catch(error => {
-      console.error(url, `Error ${error.response.status} ${error.response.statusText}`);
-      return null;
-    });
+async function getCardOnBoard(board, ...messages) {
+  for (let i = 0; i < messages.length; ++i) {
+    let message = messages[i];
+    console.log(`getCardOnBoard(${board}, ${message})`);
+    let card = getCardNumber(message);
+    if (card && card.length > 0) {
+      let url = `https://trello.com/1/boards/${board}/cards/${card}`
+      return await axios.get(url, {
+        params: {
+          key: trelloApiKey,
+          token: trelloAuthToken
+        }
+      }).then(response => {
+        return response.data.id;
+      }).catch(error => {
+        console.error(url, `Error ${error.response.status} ${error.response.statusText}`);
+      });
+    }
   }
   return null;
 }
@@ -141,8 +143,11 @@ async function handlePullRequest(data) {
   console.log("handlePullRequest", data);
   let url = data.html_url || data.url;
   let message = data.title;
+  let branch = data.head.ref;
   let user = data.user.name;
+
   let card = await getCardOnBoard(trelloBoardId, message);
+
   if (card && card.length > 0) {
     if (trelloCardAction && trelloCardAction.toLowerCase() == 'attachment') {
       await addAttachmentToCard(card, url);
